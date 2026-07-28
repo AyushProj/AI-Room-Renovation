@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import ImageUploader from "./components/ImageUploader";
+import RoomAnalysisFlow from "./components/RoomAnalysisFlow";
 
 export default async function Home() {
   const supabase = await createClient();
@@ -19,7 +19,7 @@ export default async function Home() {
 
       <div className="mt-10 flex w-full flex-col items-center">
         {user ? (
-          <ImageUploader userId={user.id} />
+          <RoomAnalysisFlow userId={user.id} />
         ) : (
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-8 py-10">
             <p className="text-sm text-gray-600">
