@@ -7,3 +7,15 @@ export interface RoomAnalysis {
   dominantColors: string[];
   notes: string;
 }
+
+export type QuestionType = "single_select" | "multi_select" | "text";
+
+export interface Question {
+  id: string;
+  question: string;
+  type: QuestionType;
+  options?: string[];
+}
+
+export type Answer = string | string[];
+export type AnswersMap = Record<string, Answer>;
