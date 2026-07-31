@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ImageUploader from "./ImageUploader";
 import QuestionFlow from "./QuestionFlow";
+import DesignGenerator from "./DesignGenerator";
 import type { RoomAnalysis, Question, AnswersMap } from "@/lib/types";
 
 type Step =
@@ -20,8 +21,16 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<AnswersMap | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [originalImagePath, setOriginalImagePath] = useState<string | null>(
+    null
+  );
+  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(
+    null
+  );
 
-  async function handleUploadComplete(path: string) {
+  async function handleUploadComplete(path: string, signedUrl: string) {
+    setOriginalImagePath(path);
+    setOriginalImageUrl(signedUrl);
     setStep("analyzing");
     setError(null);
 
@@ -160,8 +169,19 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
               </dl>
             </div>
             <p className="text-center text-sm text-gray-400">
-              Image generation from these preferences is built in the next phase.
+              Generate a photorealistic preview below.
             </p>
+            {originalImagePath && originalImageUrl && (
+              <div className="flex justify-center">
+                <DesignGenerator
+                  originalImagePath={originalImagePath}
+                  originalImageUrl={originalImageUrl}
+                  analysis={analysis}
+                  answers={answers}
+                  questions={questions}
+                />
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
