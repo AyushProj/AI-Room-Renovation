@@ -2,10 +2,6 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { RoomAnalysis } from "@/lib/types";
 
-// File location: app/api/projects/route.ts
-// Called once, right after /api/analyze succeeds, to create the
-// "timeline root" that every generated version will attach to.
-
 export async function POST(request: Request) {
   try {
     const { path, analysis } = (await request.json()) as {

@@ -1,21 +1,34 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
+import { Type } from "@google/genai";
 import { createClient } from "@/lib/supabase/server";
+import { getGeminiClient } from "@/lib/gemini";
+import { resolveCloudflareCreds } from "@/lib/user-keys";
 import type { RoomAnalysis, AnswersMap, Question } from "@/lib/types";
 
-// FLUX.2 on Workers AI requires each reference image to be <= 512x512,
-// takes multipart form-data, and returns { result: { image: base64 } }.
-// Docs: https://developers.cloudflare.com/workers-ai/models/flux-2-dev/
-const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
-const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
-
 const CF_MODEL = "@cf/black-forest-labs/flux-2-dev";
-const CF_RUN_URL = CLOUDFLARE_ACCOUNT_ID
-  ? `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${CF_MODEL}`
-  : null;
 
 const MAX_REFERENCE_DIMENSION = 512;
 const OUTPUT_MAX_DIMENSION = 1024;
+const MAX_VALIDATION_ATTEMPTS = 3;
+
+const FRIENDLY_FAILURE_MESSAGE =
+  "We couldn't generate a version that kept your room's structure intact after a few tries. This tends to happen with angled or wide-shot photos — try a straighter-on photo of the room, taken a bit further back, and give it another shot.";
+
+// Thrown for Cloudflare auth/quota failures specifically, so the outer
+// handler can give a "go add your own key" message instead of the
+// generic structure-preservation failure message, and so the
+// validation-retry loop below doesn't waste attempts retrying an error
+// that a reinforced prompt can't fix.
+class CloudflareGenerationError extends Error {
+  status: number;
+  usedUserKey: boolean;
+  constructor(status: number, body: string, usedUserKey: boolean) {
+    super(`Cloudflare Workers AI request failed (${status}): ${body}`);
+    this.status = status;
+    this.usedUserKey = usedUserKey;
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -36,16 +49,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !CF_RUN_URL) {
-      return NextResponse.json(
-        {
-          error:
-            "CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN is not set on the server.",
-        },
-        { status: 500 }
-      );
-    }
-
     const supabase = await createClient();
     const {
       data: { user },
@@ -54,7 +57,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const prompt = buildPrompt(analysis, answers, questions);
+    const creds = await resolveCloudflareCreds(user.id);
+    if (!creds) {
+      return NextResponse.json(
+        {
+          error:
+            "No Cloudflare Workers AI key is configured. Add your own free key in Settings.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const basePrompt = buildPrompt(analysis, answers, questions);
 
     const originalRes = await fetch(originalImageUrl);
     if (!originalRes.ok) {
@@ -63,25 +77,75 @@ export async function POST(request: Request) {
       );
     }
     const originalBuffer = Buffer.from(await originalRes.arrayBuffer());
+    const originalMimeType =
+      originalRes.headers.get("content-type") || "image/jpeg";
     const metadata = await sharp(originalBuffer).metadata();
 
     const { referenceBuffer, outputWidth, outputHeight } =
       await prepareImages(originalBuffer, metadata.width, metadata.height);
 
-    const { buffer: imageBuffer, mimeType } = await generateWithRetry(
-      prompt,
-      referenceBuffer,
-      outputWidth,
-      outputHeight
-    );
+    // ── Phase 6 reliability loop: generate, validate structure, retry
+    // with a reinforced prompt on failure, up to MAX_VALIDATION_ATTEMPTS.
+    let finalImage: { buffer: Buffer; mimeType: string } | null = null;
+    let lastReason = "";
+    let attemptsUsed = 0;
 
-    const ext = mimeType.split("/")[1] || "png";
+    for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt++) {
+      attemptsUsed = attempt;
+      const prompt =
+        attempt === 1
+          ? basePrompt
+          : `${basePrompt}\n\nIMPORTANT: A previous attempt failed because: "${lastReason}". This time be extremely conservative — make ONLY furniture/decor/color changes and leave every architectural line exactly where it is in the original photo.`;
+
+      const generated = await generateOnce(
+        prompt,
+        referenceBuffer,
+        outputWidth,
+        outputHeight,
+        creds
+      );
+
+      const validation = await validateStructure(
+        originalBuffer.toString("base64"),
+        originalMimeType,
+        generated.buffer.toString("base64"),
+        generated.mimeType
+      );
+
+      if (validation.preserved) {
+        finalImage = generated;
+        break;
+      }
+      lastReason = validation.reason;
+    }
+
+    if (!finalImage) {
+      await supabase.from("generation_logs").insert({
+        user_id: user.id,
+        project_id: projectId ?? null,
+        attempts: attemptsUsed,
+        success: false,
+        final_reason: lastReason,
+      });
+
+      return NextResponse.json({ error: FRIENDLY_FAILURE_MESSAGE }, { status: 422 });
+    }
+
+    await supabase.from("generation_logs").insert({
+      user_id: user.id,
+      project_id: projectId ?? null,
+      attempts: attemptsUsed,
+      success: true,
+      final_reason: null,
+    });
+
+    const ext = finalImage.mimeType.split("/")[1] || "png";
     const generatedPath = `${user.id}/${Date.now()}.${ext}`;
 
     const { error: uploadError } = await supabase.storage
       .from("generated-images")
-      .upload(generatedPath, imageBuffer, {
-        contentType: mimeType,
+      .upload(generatedPath, finalImage.buffer, {
+        contentType: finalImage.mimeType,
         upsert: false,
       });
 
@@ -96,9 +160,6 @@ export async function POST(request: Request) {
       throw signedUrlError ?? new Error("Could not create signed URL");
     }
 
-    // Persist as the next version in this project's timeline. Doesn't
-    // block the response on failure — a save hiccup shouldn't hide a
-    // perfectly good generated image from the user right now.
     let versionNumber = 1;
     if (projectId) {
       const { count } = await supabase
@@ -129,9 +190,30 @@ export async function POST(request: Request) {
       path: generatedPath,
       url: signedUrlData.signedUrl,
       projectId: projectId ?? null,
+      attemptsUsed,
     });
   } catch (err) {
     console.error("Generate route error:", err);
+
+    if (err instanceof CloudflareGenerationError) {
+      const isAuthError = err.status === 401 || err.status === 403;
+      const isQuotaError = err.status === 429;
+
+      let message =
+        "Something went wrong generating the design. Please try again.";
+      if (isAuthError) {
+        message = err.usedUserKey
+          ? "Your saved Cloudflare key was rejected. Check it in Settings."
+          : "The app's Cloudflare key isn't working right now.";
+      } else if (isQuotaError) {
+        message = err.usedUserKey
+          ? "Your Cloudflare account has hit its daily free limit. Try again after 00:00 UTC."
+          : "The app's shared free quota is used up for today. Add your own free Cloudflare key in Settings to keep generating.";
+      }
+
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
+
     return NextResponse.json(
       {
         error:
@@ -151,7 +233,7 @@ function buildPrompt(
 ): string {
   const answerLines = questions
     .map((q) => {
-      if (q.id === "renovation_intensity") return null; // handled separately below
+      if (q.id === "renovation_intensity") return null;
       const a = answers[q.id];
       if (!a || (Array.isArray(a) && a.length === 0)) return null;
       const value = Array.isArray(a) ? a.join(", ") : a;
@@ -230,11 +312,16 @@ async function prepareImages(
   return { referenceBuffer, outputWidth, outputHeight };
 }
 
-async function generateWithRetry(
+// One call to Workers AI, with a small internal retry for transient
+// failures only (network hiccups, momentary API errors) — separate from
+// the outer structure-validation retry loop above. Auth/quota errors are
+// NOT retried here since retrying won't fix them.
+async function generateOnce(
   prompt: string,
   referenceImage: Buffer,
   width: number,
   height: number,
+  creds: { accountId: string; apiToken: string; isUserOwned: boolean },
   attempt = 1
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   try {
@@ -253,17 +340,27 @@ async function generateWithRetry(
     form.append("width", String(width));
     form.append("height", String(height));
     form.append("steps", "30");
-    // Higher guidance = follows the prompt (incl. the "don't touch
-    // architecture" rules) more literally, at some cost to creativity.
     form.append("guidance", "9");
 
-    const res = await fetch(CF_RUN_URL as string, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
-      },
-      body: form,
-    });
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/ai/run/${CF_MODEL}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${creds.apiToken}`,
+        },
+        body: form,
+      }
+    );
+
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      const errText = await res.text();
+      throw new CloudflareGenerationError(
+        res.status,
+        errText,
+        creds.isUserOwned
+      );
+    }
 
     const data = await res.json();
 
@@ -284,9 +381,98 @@ async function generateWithRetry(
       mimeType: "image/png",
     };
   } catch (err) {
+    if (err instanceof CloudflareGenerationError) {
+      // Don't retry auth/quota failures — a retry burns more of the
+      // (possibly limited) allocation without any chance of succeeding.
+      throw err;
+    }
     if (attempt < 2) {
-      return generateWithRetry(prompt, referenceImage, width, height, attempt + 1);
+      return generateOnce(
+        prompt,
+        referenceImage,
+        width,
+        height,
+        creds,
+        attempt + 1
+      );
     }
     throw err;
   }
+}
+
+const VALIDATION_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    structurePreserved: { type: Type.BOOLEAN },
+    reason: {
+      type: Type.STRING,
+      description: "One short sentence explaining the judgment",
+    },
+  },
+  required: ["structurePreserved", "reason"],
+};
+
+// Phase 6 core check: cheap vision call comparing original vs generated,
+// judging ONLY structural preservation — never decor taste.
+async function validateStructure(
+  originalBase64: string,
+  originalMimeType: string,
+  generatedBase64: string,
+  generatedMimeType: string
+): Promise<{ preserved: boolean; reason: string }> {
+  const ai = getGeminiClient();
+
+  const response = await ai.models.generateContent({
+    // gemini-3.6-flash's free tier is only 20 requests/day total — this
+    // validation call runs up to 3x per generation, so it exhausts fast.
+    // Flash-Lite handles this simple yes/no structural check just as
+    // well and has a much higher free daily quota (~1,500/day).
+    model: "gemini-2.5-flash-lite",
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: `Compare these two photos of the same physical space. Image 1 is
+the ORIGINAL. Image 2 is an AI-edited RENOVATION of it. Your only job is to
+check whether the room's physical structure was preserved — NOT whether you
+like the new decor.
+
+Structure means: wall positions, window count/placement, door count/placement,
+ceiling/roof shape, overall room shape and proportions, and camera
+angle/perspective. Furniture, colors, decor, and materials are EXPECTED to
+change and should be ignored in your judgment.
+
+If windows/doors were added, removed, or moved, or the room shape changed,
+or the camera perspective shifted, or indoor/outdoor status changed, mark
+it as NOT preserved.`,
+          },
+          { inlineData: { mimeType: originalMimeType, data: originalBase64 } },
+          {
+            inlineData: {
+              mimeType: generatedMimeType,
+              data: generatedBase64,
+            },
+          },
+        ],
+      },
+    ],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: VALIDATION_SCHEMA,
+    },
+  });
+
+  const text = response.text;
+  if (!text) {
+    // If validation itself fails (not the generation), don't silently
+    // block a possibly-good image — treat as preserved but say why.
+    return { preserved: true, reason: "Validation call returned no output" };
+  }
+
+  const parsed = JSON.parse(text) as {
+    structurePreserved: boolean;
+    reason: string;
+  };
+  return { preserved: parsed.structurePreserved, reason: parsed.reason };
 }

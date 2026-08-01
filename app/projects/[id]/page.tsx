@@ -3,8 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { RoomAnalysis, Question } from "@/lib/types";
 import RegenerateSection from "./RegenerateSection";
-
-// File location: app/projects/[id]/page.tsx
+import ProductHotspots from "@/app/components/ProductHotspots";
 
 interface ProjectRow {
   id: string;
@@ -89,9 +88,6 @@ export default async function ProjectDetailPage({
     })
   );
 
-  // Reconstruct the RoomAnalysis shape the generator route expects, so
-  // "make more changes" can call /api/questions and /api/generate again
-  // without re-running vision analysis on the photo.
   const analysis: RoomAnalysis = {
     roomType: typedProject.room_type ?? "room",
     style: typedProject.style ?? "",
@@ -99,7 +95,7 @@ export default async function ProjectDetailPage({
     lighting: typedProject.lighting ?? "",
     condition: typedProject.condition ?? "",
     dominantColors: typedProject.dominant_colors ?? [],
-    notes: typedProject.notes ?? undefined,
+    notes: typedProject.notes ?? "",
   };
 
   return (
@@ -117,7 +113,6 @@ export default async function ProjectDetailPage({
       </div>
 
       <div className="space-y-6">
-        {/* Step 0: the original photo */}
         <TimelineCard label="Original photo">
           {originalSigned?.signedUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -133,7 +128,6 @@ export default async function ProjectDetailPage({
           )}
         </TimelineCard>
 
-        {/* Steps 1..N: each version, with the changes that produced it */}
         {versionsWithUrls.map((v) => (
           <div key={v.id} className="space-y-3">
             <ChangesCard version={v} />
@@ -151,6 +145,7 @@ export default async function ProjectDetailPage({
                 </div>
               )}
             </TimelineCard>
+            {v.url && <ProductHotspots imageUrl={v.url} />}
           </div>
         ))}
       </div>

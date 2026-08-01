@@ -23,6 +23,12 @@ export default async function NavBar() {
             >
               My Projects
             </Link>
+            <Link
+              href="/settings"
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              Settings
+            </Link>
             <span className="text-sm text-gray-500">{user.email}</span>
             <SignOutButton />
           </>

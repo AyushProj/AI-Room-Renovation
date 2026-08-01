@@ -19,3 +19,22 @@ export interface Question {
 
 export type Answer = string | string[];
 export type AnswersMap = Record<string, Answer>;
+
+export interface ExtractedItem {
+  label: string;
+  x: number;
+  y: number;
+}
+
+export interface MatchedProduct {
+  title: string;
+  price: string;
+  thumbnail: string;
+  link: string;
+  retailer: string;
+}
+
+export interface ItemWithMatches extends ExtractedItem {
+  products: MatchedProduct[];
+}
+
