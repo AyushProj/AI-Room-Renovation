@@ -1,25 +1,32 @@
 import { NextResponse } from "next/server";
-import { fal } from "@fal-ai/client";
+import sharp from "sharp";
 import { createClient } from "@/lib/supabase/server";
 import type { RoomAnalysis, AnswersMap, Question } from "@/lib/types";
 
-// fal reads FAL_KEY from the environment automatically, but being
-// explicit here fails fast with a clear error if it's missing.
-if (process.env.FAL_KEY) {
-  fal.config({ credentials: process.env.FAL_KEY });
-}
+// FLUX.2 on Workers AI requires each reference image to be <= 512x512,
+// takes multipart form-data, and returns { result: { image: base64 } }.
+// Docs: https://developers.cloudflare.com/workers-ai/models/flux-2-dev/
+const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 
-const FAL_MODEL = "fal-ai/flux-kontext/dev";
+const CF_MODEL = "@cf/black-forest-labs/flux-2-dev";
+const CF_RUN_URL = CLOUDFLARE_ACCOUNT_ID
+  ? `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${CF_MODEL}`
+  : null;
+
+const MAX_REFERENCE_DIMENSION = 512;
+const OUTPUT_MAX_DIMENSION = 1024;
 
 export async function POST(request: Request) {
   try {
-    const { path, originalImageUrl, analysis, answers, questions } =
+    const { path, originalImageUrl, analysis, answers, questions, projectId } =
       (await request.json()) as {
         path: string;
         originalImageUrl: string;
         analysis: RoomAnalysis;
         answers: AnswersMap;
         questions: Question[];
+        projectId?: string;
       };
 
     if (!path || !originalImageUrl || !analysis || !answers || !questions) {
@@ -29,9 +36,12 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!process.env.FAL_KEY) {
+    if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN || !CF_RUN_URL) {
       return NextResponse.json(
-        { error: "FAL_KEY is not set on the server." },
+        {
+          error:
+            "CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN is not set on the server.",
+        },
         { status: 500 }
       );
     }
@@ -46,27 +56,32 @@ export async function POST(request: Request) {
 
     const prompt = buildPrompt(analysis, answers, questions);
 
-    const generatedImageUrl = await generateWithRetry(
+    const originalRes = await fetch(originalImageUrl);
+    if (!originalRes.ok) {
+      throw new Error(
+        `Could not download original image: ${originalRes.status}`
+      );
+    }
+    const originalBuffer = Buffer.from(await originalRes.arrayBuffer());
+    const metadata = await sharp(originalBuffer).metadata();
+
+    const { referenceBuffer, outputWidth, outputHeight } =
+      await prepareImages(originalBuffer, metadata.width, metadata.height);
+
+    const { buffer: imageBuffer, mimeType } = await generateWithRetry(
       prompt,
-      originalImageUrl
+      referenceBuffer,
+      outputWidth,
+      outputHeight
     );
 
-    // Download fal's result and re-host it in our own Supabase bucket,
-    // same as before, so /projects can reload it later without relying
-    // on fal's temporary file URLs.
-    const imageRes = await fetch(generatedImageUrl);
-    if (!imageRes.ok) {
-      throw new Error(`Could not download generated image: ${imageRes.status}`);
-    }
-    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
-    const contentType = imageRes.headers.get("content-type") || "image/png";
-    const ext = contentType.split("/")[1] || "png";
+    const ext = mimeType.split("/")[1] || "png";
     const generatedPath = `${user.id}/${Date.now()}.${ext}`;
 
     const { error: uploadError } = await supabase.storage
       .from("generated-images")
       .upload(generatedPath, imageBuffer, {
-        contentType,
+        contentType: mimeType,
         upsert: false,
       });
 
@@ -81,9 +96,39 @@ export async function POST(request: Request) {
       throw signedUrlError ?? new Error("Could not create signed URL");
     }
 
+    // Persist as the next version in this project's timeline. Doesn't
+    // block the response on failure — a save hiccup shouldn't hide a
+    // perfectly good generated image from the user right now.
+    let versionNumber = 1;
+    if (projectId) {
+      const { count } = await supabase
+        .from("generated_designs")
+        .select("id", { count: "exact", head: true })
+        .eq("project_id", projectId);
+      versionNumber = (count ?? 0) + 1;
+    }
+
+    const { error: dbError } = await supabase.from("generated_designs").insert({
+      user_id: user.id,
+      project_id: projectId ?? null,
+      original_path: path,
+      generated_path: generatedPath,
+      room_type: analysis.roomType ?? null,
+      style: analysis.style ?? null,
+      renovation_intensity:
+        (answers["renovation_intensity"] as string | undefined) ?? null,
+      answers,
+      questions_snapshot: questions,
+      version_number: versionNumber,
+    });
+    if (dbError) {
+      console.error("Could not save generated_designs row:", dbError);
+    }
+
     return NextResponse.json({
       path: generatedPath,
       url: signedUrlData.signedUrl,
+      projectId: projectId ?? null,
     });
   } catch (err) {
     console.error("Generate route error:", err);
@@ -106,6 +151,7 @@ function buildPrompt(
 ): string {
   const answerLines = questions
     .map((q) => {
+      if (q.id === "renovation_intensity") return null; // handled separately below
       const a = answers[q.id];
       if (!a || (Array.isArray(a) && a.length === 0)) return null;
       const value = Array.isArray(a) ? a.join(", ") : a;
@@ -114,51 +160,132 @@ function buildPrompt(
     .filter(Boolean)
     .join("\n");
 
-  return `Full interior design renovation of this room — replace the furniture,
-decor, textiles, materials, and color palette entirely. This must look like a
-different set of furniture was moved in, not a color/lighting adjustment.
+  const intensity = answers["renovation_intensity"];
+  const intensityLine =
+    typeof intensity === "string" && intensity.length > 0
+      ? intensity
+      : "Full refresh — swap everything (furniture, colors, decor)";
 
-MANDATORY (keep identical): wall positions, window placements, door locations,
-ceiling height, floor layout, camera angle/perspective.
+  return `This is a photo EDIT task, not a new scene generation. Image 0 is
+the exact space to edit. Study its architecture carefully before changing
+anything.
 
-MANDATORY (must change): furniture, rugs, curtains, cushions, lighting
-fixtures, wall paint color, plants, and decor. A result that only shifts
-tone or lighting without swapping the actual furniture is a failed result.
+ABSOLUTE RULE — DO NOT VIOLATE: only edit furniture, decor, textiles, and
+color. NEVER add, remove, or alter any structural or architectural element
+that is not already visible in image 0. This specifically means: do not add
+a roof, pergola, canopy, awning, gazebo, ceiling, ANY new wall, column,
+arch, or fence that isn't already there. Do not change the space from
+indoor to outdoor or outdoor to indoor. Do not change window or door
+positions or counts. Do not change the camera angle, framing, or
+perspective. If you are unsure whether something is "furniture/decor" or
+"architecture", treat it as architecture and leave it untouched.
 
-Current furniture to replace: ${analysis.existingFurniture.join(", ")}
-Current style: ${analysis.style}
+This space is: ${analysis.roomType}.
+Its current style is: ${analysis.style}.
+Existing furniture to replace: ${analysis.existingFurniture.join(", ")}.
 
-Homeowner's preferences:
-${answerLines}
+Renovation intensity requested: ${intensityLine}
 
-Photorealistic, high-end interior design photography style.`;
+Additional homeowner preferences:
+${answerLines || "(none specified)"}
+
+Within those limits, fully replace the furniture, rugs/flooring textiles,
+cushions, lighting fixtures, planters/plants, and decor with a photorealistic,
+high-end interior/exterior design photography result. A result that only
+shifts tone or lighting without swapping the actual furniture is a failed
+result — but a result that adds architecture not present in image 0 is also
+a failed result and is worse.
+
+Reminder: keep identical to image 0 — walls, windows, doors, fences,
+ceiling/sky, floor layout, and camera angle/perspective.`;
+}
+
+async function prepareImages(
+  originalBuffer: Buffer,
+  width?: number,
+  height?: number
+): Promise<{
+  referenceBuffer: Buffer;
+  outputWidth: number;
+  outputHeight: number;
+}> {
+  const referenceBuffer = await sharp(originalBuffer)
+    .resize(MAX_REFERENCE_DIMENSION, MAX_REFERENCE_DIMENSION, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .png()
+    .toBuffer();
+
+  const aspect = width && height ? width / height : 4 / 3;
+  let outputWidth = OUTPUT_MAX_DIMENSION;
+  let outputHeight = Math.round(outputWidth / aspect);
+  if (outputHeight > OUTPUT_MAX_DIMENSION) {
+    outputHeight = OUTPUT_MAX_DIMENSION;
+    outputWidth = Math.round(outputHeight * aspect);
+  }
+  outputWidth = Math.min(1920, Math.max(256, outputWidth));
+  outputHeight = Math.min(1920, Math.max(256, outputHeight));
+
+  return { referenceBuffer, outputWidth, outputHeight };
 }
 
 async function generateWithRetry(
   prompt: string,
-  imageUrl: string,
+  referenceImage: Buffer,
+  width: number,
+  height: number,
   attempt = 1
-): Promise<string> {
+): Promise<{ buffer: Buffer; mimeType: string }> {
   try {
-    const result = await fal.subscribe(FAL_MODEL, {
-      input: {
-        prompt,
-        image_url: imageUrl,
+    const referenceArrayBuffer = referenceImage.buffer.slice(
+      referenceImage.byteOffset,
+      referenceImage.byteOffset + referenceImage.byteLength
+    ) as ArrayBuffer;
+
+    const form = new FormData();
+    form.append("prompt", prompt);
+    form.append(
+      "input_image_0",
+      new Blob([referenceArrayBuffer], { type: "image/png" }),
+      "room.png"
+    );
+    form.append("width", String(width));
+    form.append("height", String(height));
+    form.append("steps", "30");
+    // Higher guidance = follows the prompt (incl. the "don't touch
+    // architecture" rules) more literally, at some cost to creativity.
+    form.append("guidance", "9");
+
+    const res = await fetch(CF_RUN_URL as string, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
       },
-      logs: false,
+      body: form,
     });
 
-    const image = result.data?.images?.[0];
-    if (!image?.url) {
-      throw new Error("fal.ai did not return a generated image.");
+    const data = await res.json();
+
+    if (!res.ok || data?.success === false) {
+      const message =
+        data?.errors?.[0]?.message ||
+        `Cloudflare Workers AI request failed (${res.status})`;
+      throw new Error(message);
     }
 
-    return image.url;
+    const base64Image: string | undefined = data?.result?.image;
+    if (!base64Image) {
+      throw new Error("Workers AI did not return a generated image.");
+    }
+
+    return {
+      buffer: Buffer.from(base64Image, "base64"),
+      mimeType: "image/png",
+    };
   } catch (err) {
     if (attempt < 2) {
-      // One retry for transient failures. Structure-preservation
-      // validation and smarter retries land in Phase 6.
-      return generateWithRetry(prompt, imageUrl, attempt + 1);
+      return generateWithRetry(prompt, referenceImage, width, height, attempt + 1);
     }
     throw err;
   }

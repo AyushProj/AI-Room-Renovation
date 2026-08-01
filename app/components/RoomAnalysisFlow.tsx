@@ -27,6 +27,7 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(
     null
   );
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   async function handleUploadComplete(path: string, signedUrl: string) {
     setOriginalImagePath(path);
@@ -48,6 +49,27 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
 
       const data: RoomAnalysis = await res.json();
       setAnalysis(data);
+
+      // Fire-and-forget-ish: create the project row now so every version
+      // generated from here on attaches to the same timeline. If this
+      // fails we still let the user continue — DesignGenerator just
+      // won't be able to save a version, and we surface that there.
+      try {
+        const projectRes = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, analysis: data }),
+        });
+        if (projectRes.ok) {
+          const { projectId: newProjectId } = await projectRes.json();
+          setProjectId(newProjectId);
+        } else {
+          console.error("Could not create project row");
+        }
+      } catch (projectErr) {
+        console.error("Could not create project row:", projectErr);
+      }
+
       await fetchQuestions(data);
     } catch (err) {
       console.error(err);
@@ -73,7 +95,20 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
       }
 
       const data: Question[] = await res.json();
-      setQuestions(data);
+      // Always ask this, regardless of what the model came up with — it
+      // directly controls how aggressive the generation prompt is, and
+      // we never want it missing.
+      const intensityQuestion: Question = {
+        id: "renovation_intensity",
+        question: "How much do you want to change?",
+        type: "single_select",
+        options: [
+          "Full refresh — swap everything (furniture, colors, decor)",
+          "Moderate — new furniture, keep a few current pieces",
+          "Light — mostly styling and accessories",
+        ],
+      };
+      setQuestions([intensityQuestion, ...data]);
       setStep("answering");
     } catch (err) {
       console.error(err);
@@ -179,6 +214,7 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
                   analysis={analysis}
                   answers={answers}
                   questions={questions}
+                  projectId={projectId}
                 />
               </div>
             )}

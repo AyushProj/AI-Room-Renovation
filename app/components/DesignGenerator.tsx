@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import type { RoomAnalysis, AnswersMap, Question } from "@/lib/types";
 
@@ -10,6 +11,7 @@ interface DesignGeneratorProps {
   analysis: RoomAnalysis;
   answers: AnswersMap;
   questions: Question[];
+  projectId?: string | null;
 }
 
 type GenState = "ready" | "generating" | "done" | "error";
@@ -20,6 +22,7 @@ export default function DesignGenerator({
   analysis,
   answers,
   questions,
+  projectId,
 }: DesignGeneratorProps) {
   const [state, setState] = useState<GenState>("ready");
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
@@ -40,6 +43,7 @@ export default function DesignGenerator({
           analysis,
           answers,
           questions,
+          projectId,
         }),
       });
 
@@ -129,13 +133,21 @@ export default function DesignGenerator({
             className="w-full object-cover"
           />
 
-          <div className="p-4 text-center">
+          <div className="flex items-center justify-center gap-4 p-4 text-center">
             <button
               onClick={handleGenerate}
               className="text-sm font-medium text-gray-500 hover:text-gray-900"
             >
               Generate another version
             </button>
+            {projectId && (
+              <Link
+                href={`/projects/${projectId}`}
+                className="text-sm font-medium text-gray-900 underline hover:text-gray-700"
+              >
+                View full history
+              </Link>
+            )}
           </div>
         </motion.div>
       )}
