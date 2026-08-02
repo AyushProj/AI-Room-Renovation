@@ -21,14 +21,38 @@ function LoginPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
 
-  // Picks up errors forwarded from /auth/callback after a redirect back
-  // from Google — linkIdentity() itself doesn't throw for these, since
-  // Supabase only discovers them after the round trip.
+  // Supabase reports OAuth/linking errors in the URL HASH fragment
+  // (#error=...), not the query string — the fragment never reaches the
+  // server, so /auth/callback can't forward it as a query param. This
+  // has to be read client-side, and takes priority over any ?error=...
+  // the server route added as a generic fallback.
   useEffect(() => {
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashParams = new URLSearchParams(hash);
+    const hashErrorCode = hashParams.get("error_code");
+    const hashDescription = hashParams.get("error_description");
+
+    if (hashErrorCode) {
+      applyError(hashErrorCode, hashDescription);
+      // Clean the fragment out of the address bar so refreshing doesn't
+      // keep re-showing a stale error.
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+
     const code = searchParams.get("error_code");
     const description = searchParams.get("error_description");
-    if (!code) return;
+    const generic = searchParams.get("error");
+    if (code) {
+      applyError(code, description);
+    } else if (generic) {
+      applyError(generic, description);
+    }
+  }, [searchParams]);
 
+  function applyError(code: string, description: string | null) {
     if (code === "identity_already_exists") {
       setErrorKind("already_linked");
       setError(
@@ -41,7 +65,7 @@ function LoginPageInner() {
       setErrorKind("generic");
       setError(description ?? "Something went wrong signing you in.");
     }
-  }, [searchParams]);
+  }
 
   async function signInFresh() {
     setLoading(true);
