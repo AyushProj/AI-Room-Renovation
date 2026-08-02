@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { RoomAnalysis, Question } from "@/lib/types";
 import RegenerateSection from "./RegenerateSection";
 import ProductHotspots from "@/app/components/ProductHotspots";
+import CornerFrame from "@/app/components/CornerFrame";
 
 interface ProjectRow {
   id: string;
@@ -66,7 +67,7 @@ export default async function ProjectDetailPage({
   if (versionsError) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-10">
-        <p className="text-sm text-red-600">
+        <p className="rounded-lg border border-clay/30 bg-clay/5 p-4 text-sm text-clay-dark">
           Could not load this project&apos;s history: {versionsError.message}
         </p>
       </div>
@@ -99,15 +100,15 @@ export default async function ProjectDetailPage({
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-10">
+    <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
       <div className="mb-8 flex items-center justify-between">
         <Link
           href="/projects"
-          className="text-sm text-gray-500 hover:text-gray-900"
+          className="text-sm text-ink-muted transition hover:text-ink"
         >
           ← My Projects
         </Link>
-        <h1 className="text-sm font-semibold text-gray-900">
+        <h1 className="font-mono text-xs uppercase tracking-wide text-ink-muted">
           {typedProject.room_type ?? "Room"} · {typedProject.style ?? ""}
         </h1>
       </div>
@@ -122,7 +123,7 @@ export default async function ProjectDetailPage({
               className="w-full object-cover"
             />
           ) : (
-            <div className="flex h-48 items-center justify-center text-xs text-gray-400">
+            <div className="flex h-48 items-center justify-center font-mono text-xs text-ink-muted">
               Image link expired
             </div>
           )}
@@ -140,7 +141,7 @@ export default async function ProjectDetailPage({
                   className="w-full object-cover"
                 />
               ) : (
-                <div className="flex h-48 items-center justify-center text-xs text-gray-400">
+                <div className="flex h-48 items-center justify-center font-mono text-xs text-ink-muted">
                   Image link expired
                 </div>
               )}
@@ -170,11 +171,13 @@ function TimelineCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-      <p className="border-b border-gray-100 px-4 py-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+    <div>
+      <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wide text-ink-muted">
         {label}
       </p>
-      {children}
+      <CornerFrame className="overflow-hidden rounded-lg border border-line bg-paper-raised">
+        {children}
+      </CornerFrame>
     </div>
   );
 }
@@ -199,15 +202,17 @@ function ChangesCard({ version }: { version: VersionRow }) {
   if (rows.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+    <div className="rounded-lg border border-line bg-paper p-4">
+      <p className="font-mono text-[11px] uppercase tracking-wide text-ink-muted">
         Changes requested
       </p>
       <dl className="mt-2 space-y-1.5 text-sm">
         {rows.map((r) => (
           <div key={r.label} className="flex flex-col gap-0.5">
-            <dt className="text-xs text-gray-400">{r.label}</dt>
-            <dd className="text-gray-700">{r.value}</dd>
+            <dt className="font-mono text-[11px] text-ink-muted">
+              {r.label}
+            </dt>
+            <dd className="text-ink">{r.value}</dd>
           </div>
         ))}
       </dl>

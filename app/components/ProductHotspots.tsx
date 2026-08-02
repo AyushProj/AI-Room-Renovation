@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import CornerFrame from "./CornerFrame";
 import type { ItemWithMatches } from "@/lib/types";
 
 type Status = "loading" | "done" | "error" | "empty";
@@ -57,29 +58,32 @@ export default function ProductHotspots({ imageUrl }: { imageUrl: string }) {
 
   if (status === "loading") {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-gray-400" />
-        Finding shoppable items in your design...
+      <div className="flex items-center gap-2 font-mono text-xs text-ink-muted">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brass" />
+        Finding shoppable items...
       </div>
     );
   }
 
-  // Fails quietly — this is a bonus feature layered on top of a
-  // successful generation, so a failure here shouldn't read as if the
-  // whole result is broken.
   if (status === "error" || status === "empty") {
-    return null;
+    return (
+      <p className="font-mono text-xs text-ink-muted">
+        {status === "empty"
+          ? "No individually shoppable items found in this design."
+          : "Couldn't look up products for this design right now."}
+      </p>
+    );
   }
 
   const active = activeIndex !== null ? items[activeIndex] : null;
 
   return (
     <div className="w-full max-w-lg">
-      <p className="mb-2 text-sm font-medium text-gray-900">
+      <p className="mb-2 font-display text-sm font-medium text-ink">
         Shop items in this design
       </p>
 
-      <div className="relative overflow-hidden rounded-xl border border-gray-200">
+      <CornerFrame className="overflow-hidden rounded-lg">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageUrl}
@@ -91,23 +95,23 @@ export default function ProductHotspots({ imageUrl }: { imageUrl: string }) {
             key={`${item.label}-${i}`}
             onClick={() => setActiveIndex(i === activeIndex ? null : i)}
             style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%` }}
-            className={`absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-xs font-semibold shadow transition ${
+            className={`absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 font-mono text-xs font-semibold shadow transition ${
               i === activeIndex
-                ? "border-gray-900 bg-gray-900 text-white"
-                : "border-gray-900 bg-white text-gray-900 hover:bg-gray-900 hover:text-white"
+                ? "border-brass-dark bg-brass text-white"
+                : "border-brass bg-paper-raised text-brass-dark hover:bg-brass hover:text-white"
             }`}
             aria-label={`Show products for ${item.label}`}
           >
             {i + 1}
           </button>
         ))}
-      </div>
+      </CornerFrame>
 
       {active && (
-        <div className="mt-3 rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-sm font-medium text-gray-900">{active.label}</p>
+        <div className="mt-3 rounded-lg border border-line bg-paper-raised p-4">
+          <p className="text-sm font-medium text-ink">{active.label}</p>
           {active.products.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-400">
+            <p className="mt-2 font-mono text-xs text-ink-muted">
               No matching products found.
             </p>
           ) : (
@@ -118,7 +122,7 @@ export default function ProductHotspots({ imageUrl }: { imageUrl: string }) {
                   href={p.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block overflow-hidden rounded-lg border border-gray-200 transition hover:shadow-sm"
+                  className="block overflow-hidden rounded-md border border-line transition hover:border-ink-muted hover:shadow-sm"
                 >
                   {p.thumbnail ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -128,17 +132,19 @@ export default function ProductHotspots({ imageUrl }: { imageUrl: string }) {
                       className="h-24 w-full object-cover"
                     />
                   ) : (
-                    <div className="h-24 w-full bg-gray-100" />
+                    <div className="h-24 w-full bg-paper" />
                   )}
                   <div className="p-2">
-                    <p className="line-clamp-2 text-xs text-gray-700">
+                    <p className="line-clamp-2 text-xs text-ink">
                       {p.title}
                     </p>
-                    <p className="mt-1 text-xs font-medium text-gray-900">
+                    <p className="mt-1 font-mono text-xs font-medium text-ink">
                       {p.price}
                     </p>
                     {p.retailer && (
-                      <p className="text-xs text-gray-400">{p.retailer}</p>
+                      <p className="font-mono text-[11px] text-ink-muted">
+                        {p.retailer}
+                      </p>
                     )}
                   </div>
                 </a>

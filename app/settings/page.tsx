@@ -14,10 +14,12 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-10">
+    <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
       <BackLink />
-      <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
-      <p className="mt-1 text-sm text-gray-500">
+      <h1 className="font-display text-xl font-semibold text-ink">
+        Settings
+      </h1>
+      <p className="mt-1 text-sm text-ink-muted">
         Add your own API keys to keep generating designs and finding
         products if the app&apos;s shared keys run out of free quota. Your
         keys are private to your account and only ever used for your own

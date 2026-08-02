@@ -427,7 +427,11 @@ async function validateStructure(
     // validation call runs up to 3x per generation, so it exhausts fast.
     // Flash-Lite handles this simple yes/no structural check just as
     // well and has a much higher free daily quota (~1,500/day).
-    model: "gemini-2.5-flash-lite",
+    // gemini-2.5-flash-lite was retired for new API keys; gemini-3.1-flash-lite
+    // is the current lightweight free-tier model with a much higher free
+    // daily quota than gemini-3.6-flash — plenty for this simple yes/no
+    // structural check.
+    model: "gemini-3.1-flash-lite",
     contents: [
       {
         role: "user",

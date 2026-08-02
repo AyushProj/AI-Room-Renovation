@@ -8,7 +8,7 @@ export default function BackLink() {
   return (
     <button
       onClick={() => router.back()}
-      className="mb-4 flex items-center gap-1 text-sm text-gray-500 transition hover:text-gray-900"
+      className="mb-4 flex items-center gap-1 text-sm text-ink-muted transition hover:text-ink"
     >
       ← Back
     </button>

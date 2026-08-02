@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import CornerFrame from "./CornerFrame";
 
 interface BeforeAfterSliderProps {
   beforeUrl: string;
@@ -17,7 +18,7 @@ export default function BeforeAfterSlider({
 }: BeforeAfterSliderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
-  const [position, setPosition] = useState(50); // percent from left
+  const [position, setPosition] = useState(50);
 
   function updateFromClientX(clientX: number) {
     const el = containerRef.current;
@@ -48,76 +49,72 @@ export default function BeforeAfterSlider({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="relative aspect-[4/3] w-full touch-none select-none overflow-hidden bg-gray-100"
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-    >
-      {/* After image, full width, underneath */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={afterUrl}
-        alt={afterAlt}
-        className="absolute inset-0 h-full w-full object-cover"
-        draggable={false}
-      />
-
-      {/* Before image, clipped by position via clip-path so it never
-          needs to know the container's pixel width */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={beforeUrl}
-        alt={beforeAlt}
-        className="absolute inset-0 h-full w-full object-cover"
-        style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
-        draggable={false}
-      />
-
-      {/* Divider line */}
+    <CornerFrame className="overflow-hidden rounded-lg">
       <div
-        className="pointer-events-none absolute top-0 h-full w-0.5 bg-white/90 shadow-[0_0_6px_rgba(0,0,0,0.25)]"
-        style={{ left: `${position}%` }}
-      />
-
-      {/* Drag handle */}
-      <button
-        role="slider"
-        aria-label="Before/after comparison slider"
-        aria-valuenow={Math.round(position)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        tabIndex={0}
-        onPointerDown={handlePointerDown}
-        onKeyDown={handleKeyDown}
-        style={{ left: `${position}%` }}
-        className="absolute top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize items-center justify-center rounded-full bg-white text-gray-900 shadow-md ring-1 ring-black/5 transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-900"
+        ref={containerRef}
+        className="relative aspect-[4/3] w-full touch-none select-none overflow-hidden bg-paper"
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
       >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          aria-hidden="true"
-        >
-          <path
-            d="M8 7l-5 5 5 5M16 7l5 5-5 5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={afterUrl}
+          alt={afterAlt}
+          className="absolute inset-0 h-full w-full object-cover"
+          draggable={false}
+        />
 
-      {/* Labels */}
-      <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white">
-        Before
-      </span>
-      <span className="pointer-events-none absolute right-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white">
-        After
-      </span>
-    </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={beforeUrl}
+          alt={beforeAlt}
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
+          draggable={false}
+        />
+
+        <div
+          className="pointer-events-none absolute top-0 h-full w-0.5 bg-white/90 shadow-[0_0_6px_rgba(0,0,0,0.25)]"
+          style={{ left: `${position}%` }}
+        />
+
+        <button
+          role="slider"
+          aria-label="Before/after comparison slider"
+          aria-valuenow={Math.round(position)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          tabIndex={0}
+          onPointerDown={handlePointerDown}
+          onKeyDown={handleKeyDown}
+          style={{ left: `${position}%` }}
+          className="absolute top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize items-center justify-center rounded-full bg-white text-brass-dark shadow-md ring-1 ring-black/5 transition-transform hover:scale-105"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path
+              d="M8 7l-5 5 5 5M16 7l5 5-5 5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+
+        <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-ink/70 px-2.5 py-1 font-mono text-[11px] font-medium tracking-wide text-white">
+          BEFORE
+        </span>
+        <span className="pointer-events-none absolute right-3 top-3 rounded-full bg-sage-dark/90 px-2.5 py-1 font-mono text-[11px] font-medium tracking-wide text-white">
+          AFTER
+        </span>
+      </div>
+    </CornerFrame>
   );
 }

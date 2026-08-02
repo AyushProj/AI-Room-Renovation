@@ -1,66 +1,29 @@
 import { NextResponse } from "next/server";
-import { Type } from "@google/genai";
 import { createClient } from "@/lib/supabase/server";
-import { getGeminiClient } from "@/lib/gemini";
+import { runGroqChat, parseJsonResponse, GroqError } from "@/lib/groq";
 import type { RoomAnalysis } from "@/lib/types";
 
-const ANALYSIS_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    roomType: {
-      type: Type.STRING,
-      description: "e.g. living room, bedroom, kitchen, home office",
-    },
-    existingFurniture: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: "Short list of furniture/items visible in the photo",
-    },
-    style: {
-      type: Type.STRING,
-      description: "Current decor style, e.g. modern, traditional, sparse",
-    },
-    lighting: {
-      type: Type.STRING,
-      description: "Natural/artificial lighting conditions observed",
-    },
-    condition: {
-      type: Type.STRING,
-      description: "Overall condition/state of the space",
-    },
-    dominantColors: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    notes: {
-      type: Type.STRING,
-      description: "Any other observations relevant to a renovation",
-    },
-  },
-  required: [
-    "roomType",
-    "existingFurniture",
-    "style",
-    "lighting",
-    "condition",
-    "dominantColors",
-    "notes",
-  ],
-};
+const VISION_MODEL = "qwen/qwen3.6-27b";
 
-const SYSTEM_PROMPT = `You are an interior design assistant. Analyze the room photo
-and describe exactly what you observe. Be concrete and specific rather than
-generic. Do not invent details you cannot see in the image.`;
+const PROMPT = `Look at this room photo and respond with a JSON object matching exactly this shape:
+
+{
+  "roomType": "string, e.g. living room, kitchen, outdoor patio",
+  "style": "string, current decorating style, e.g. modern bohemian",
+  "existingFurniture": ["array of distinct furniture/decor items visible"],
+  "lighting": "string, brief description of the lighting",
+  "condition": "string, e.g. excellent, dated, worn",
+  "dominantColors": ["2 to 4 dominant colors in the room"],
+  "notes": "string, anything else worth noting, or an empty string"
+}`;
 
 export async function POST(request: Request) {
   try {
-    const { path } = await request.json();
-    if (!path || typeof path !== "string") {
-      return NextResponse.json({ error: "Missing image path" }, { status: 400 });
+    const { path } = (await request.json()) as { path: string };
+    if (!path) {
+      return NextResponse.json({ error: "Missing path" }, { status: 400 });
     }
 
-    // Require an authenticated user, and rely on Supabase Storage RLS
-    // (Phase 2 policies) to ensure they can only download their own file.
     const supabase = await createClient();
     const {
       data: { user },
@@ -81,56 +44,47 @@ export async function POST(request: Request) {
     }
 
     const arrayBuffer = await fileBlob.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString("base64");
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
     const mimeType = fileBlob.type || "image/jpeg";
 
-    const analysis = await analyzeWithRetry(base64Data, mimeType);
-
-    return NextResponse.json(analysis);
-  } catch (err) {
-    console.error("Analyze route error:", err);
-    return NextResponse.json(
-      { error: "Something went wrong analyzing the image. Please try again." },
-      { status: 500 }
-    );
-  }
-}
-
-async function analyzeWithRetry(
-  base64Data: string,
-  mimeType: string,
-  attempt = 1
-): Promise<RoomAnalysis> {
-  const ai = getGeminiClient();
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: [
+    const text = await runGroqChat(
+      VISION_MODEL,
+      [
         {
           role: "user",
-          parts: [
-            { text: SYSTEM_PROMPT },
-            { inlineData: { mimeType, data: base64Data } },
+          content: [
+            { type: "text", text: PROMPT },
+            {
+              type: "image_url",
+              image_url: { url: `data:${mimeType};base64,${base64}` },
+            },
           ],
         },
       ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: ANALYSIS_SCHEMA,
-      },
-    });
+      true // json mode
+    );
 
-    const text = response.text;
-    if (!text) throw new Error("Empty response from model");
-
-    return JSON.parse(text) as RoomAnalysis;
+    const analysis = parseJsonResponse<RoomAnalysis>(text);
+    return NextResponse.json(analysis);
   } catch (err) {
-    if (attempt < 2) {
-      // Transient failures (bad JSON, timeout) get one retry before
-      // we give up and surface an error to the user.
-      return analyzeWithRetry(base64Data, mimeType, attempt + 1);
+    console.error("Analyze route error:", err);
+
+    if (err instanceof GroqError) {
+      const message =
+        err.status === 429
+          ? "Groq's free tier rate limit was hit. Wait a moment and try again."
+          : err.status === 401
+          ? "GROQ_API_KEY looks invalid. Check it in .env.local."
+          : "Could not analyze this photo. Try again.";
+      return NextResponse.json({ error: message }, { status: 502 });
     }
-    throw err;
+
+    return NextResponse.json(
+      {
+        error:
+          "Couldn't read this photo. Try a clearer, well-lit shot of the room.",
+      },
+      { status: 500 }
+    );
   }
 }

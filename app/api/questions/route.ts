@@ -1,54 +1,39 @@
 import { NextResponse } from "next/server";
-import { Type } from "@google/genai";
-import { getGeminiClient } from "@/lib/gemini";
+import { createClient } from "@/lib/supabase/server";
+import { runGroqChat, parseJsonResponse, GroqError } from "@/lib/groq";
 import type { RoomAnalysis, Question } from "@/lib/types";
 
-const QUESTIONS_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    questions: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          id: {
-            type: Type.STRING,
-            description: "short snake_case identifier, e.g. 'style_preference'",
-          },
-          question: { type: Type.STRING },
-          type: {
-            type: Type.STRING,
-            enum: ["single_select", "multi_select", "text"],
-          },
-          options: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: "3-5 concrete options. Omit for type 'text'.",
-          },
-        },
-        required: ["id", "question", "type"],
-      },
-    },
-  },
-  required: ["questions"],
-};
+const TEXT_MODEL = "openai/gpt-oss-20b";
 
-const SYSTEM_PROMPT = `You are helping plan a home renovation. Based on the room
-analysis provided, generate 5 short, specific questions to ask the homeowner
-before designing a renovation for this exact space. Requirements:
-- Questions must be relevant to what was actually observed in the room
-  (its type, current furniture, and condition) — do not ask generic questions
-  that could apply to any room.
-- Include exactly one budget question (single_select, options as price ranges
-  in USD, e.g. "Under $1,000", "$1,000-3,000", "$3,000-7,000", "$7,000+").
-- Include a question about who uses/lives in the space.
-- Include a question about desired style direction, with concrete style
-  names as options (not vague terms).
-- Include a question about what to keep vs. change.
-- Include exactly one open-ended free-text question ("type": "text") for
-  anything else the homeowner wants to mention.
-- single_select and multi_select questions must have 3-5 concrete,
-  mutually distinct options.`;
+function buildPrompt(analysis: RoomAnalysis): string {
+  return `Given this room analysis:
+${JSON.stringify(analysis, null, 2)}
+
+Generate 4 to 6 short, relevant questions to ask the homeowner before
+renovating this specific room — questions should make sense for this room
+type (e.g. don't ask about "sofa style" for a kitchen). Each question needs
+a type of "single_select", "multi_select", or "text":
+- Use "single_select" when only one answer makes sense (e.g. overall style
+  direction, budget range).
+- Use "multi_select" whenever more than one choice could reasonably apply
+  at once (e.g. "which current elements would you like to keep?", "who
+  will primarily use this space?") — don't force these into single_select.
+- single_select and multi_select need an "options" array of 3-5 short
+  choices; "text" needs no options.
+
+Respond with a JSON object in exactly this shape:
+
+{
+  "questions": [
+    {
+      "id": "short_snake_case_id",
+      "question": "The question text",
+      "type": "single_select",
+      "options": ["Option A", "Option B", "Option C"]
+    }
+  ]
+}`;
+}
 
 export async function POST(request: Request) {
   try {
@@ -57,33 +42,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing analysis" }, { status: 400 });
     }
 
-    const ai = getGeminiClient();
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: SYSTEM_PROMPT },
-            { text: `Room analysis:\n${JSON.stringify(analysis, null, 2)}` },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: QUESTIONS_SCHEMA,
-      },
-    });
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
 
-    const text = response.text;
-    if (!text) throw new Error("Empty response from model");
+    const text = await runGroqChat(
+      TEXT_MODEL,
+      [{ role: "user", content: buildPrompt(analysis) }],
+      true // json mode
+    );
 
-    const parsed = JSON.parse(text) as { questions: Question[] };
+    const parsed = parseJsonResponse<{ questions: Question[] }>(text);
+    if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) {
+      throw new Error("Model returned no questions");
+    }
+
     return NextResponse.json(parsed.questions);
   } catch (err) {
     console.error("Questions route error:", err);
+
+    if (err instanceof GroqError) {
+      const message =
+        err.status === 429
+          ? "Groq's free tier rate limit was hit. Wait a moment and try again."
+          : err.status === 401
+          ? "GROQ_API_KEY looks invalid. Check it in .env.local."
+          : "Could not generate questions. Try again.";
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
+
     return NextResponse.json(
-      { error: "Could not generate questions. Please try again." },
+      { error: "Couldn't put together questions for this room. Try again." },
       { status: 500 }
     );
   }

@@ -1,26 +1,34 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-paper: #f5f6f4;
+  --color-paper-raised: #ffffff;
+  --color-ink: #1b2a3d;
+  --color-ink-muted: #5b6472;
+  --color-line: #d8dce1;
+  --color-brass: #b4703a;
+  --color-brass-dark: #96592c;
+  --color-sage: #6b8f71;
+  --color-sage-dark: #557259;
+  --color-clay: #b4453a;
+  --color-clay-dark: #963a30;
+
+  /* These reference the --ff-* variables that next/font attaches via
+     className in layout.tsx — NOT the same names as these tokens. */
+  --font-display: var(--ff-display), sans-serif;
+  --font-body: var(--ff-body), sans-serif;
+  --font-mono: var(--ff-mono), monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:focus-visible {
+  outline: 2px solid var(--color-brass);
+  outline-offset: 2px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }

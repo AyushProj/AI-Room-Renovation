@@ -129,7 +129,10 @@ export default function SettingsForm() {
 
   if (loadError) {
     return (
-      <p className="text-sm text-red-600" role="alert">
+      <p
+        className="rounded-lg border border-clay/30 bg-clay/5 p-4 text-sm text-clay-dark"
+        role="alert"
+      >
         {loadError}
       </p>
     );
@@ -137,18 +140,18 @@ export default function SettingsForm() {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-xl border border-gray-200 bg-white p-6">
-        <h2 className="text-sm font-semibold text-gray-900">
+      <section className="rounded-lg border border-line bg-paper-raised p-5 sm:p-6">
+        <h2 className="font-display text-sm font-semibold text-ink">
           Cloudflare Workers AI
         </h2>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-ink-muted">
           Used to generate your renovated room images. Get a free Account ID
           and API token (Workers AI permissions) from the{" "}
           <a
             href="https://dash.cloudflare.com/?to=/:account/ai/workers-ai"
             target="_blank"
             rel="noopener noreferrer"
-            className="underline"
+            className="text-brass-dark underline"
           >
             Cloudflare dashboard
           </a>
@@ -156,14 +159,14 @@ export default function SettingsForm() {
         </p>
 
         {status?.hasCloudflareApiToken && (
-          <p className="mt-3 text-xs font-medium text-green-700">
+          <p className="mt-3 font-mono text-xs font-medium text-sage-dark">
             Currently saved: token {status.cloudflareApiTokenMasked}
           </p>
         )}
 
         <div className="mt-4 space-y-3">
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
+            <label className="font-mono text-[11px] uppercase tracking-wide text-ink-muted">
               Account ID
             </label>
             <input
@@ -171,11 +174,11 @@ export default function SettingsForm() {
               value={cloudflareAccountId}
               onChange={(e) => setCloudflareAccountId(e.target.value)}
               placeholder="e.g. a1b2c3d4e5f6..."
-              className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 text-sm text-gray-900 outline-none focus:border-gray-500"
+              className="mt-1 w-full rounded-md border border-line p-2.5 text-sm text-ink outline-none focus:border-brass"
             />
           </div>
           <div>
-            <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
+            <label className="font-mono text-[11px] uppercase tracking-wide text-ink-muted">
               API Token
             </label>
             <input
@@ -187,7 +190,7 @@ export default function SettingsForm() {
                   ? "Leave blank to keep current token"
                   : "Paste your Workers AI API token"
               }
-              className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 text-sm text-gray-900 outline-none focus:border-gray-500"
+              className="mt-1 w-full rounded-md border border-line p-2.5 text-sm text-ink outline-none focus:border-brass"
             />
           </div>
         </div>
@@ -196,37 +199,41 @@ export default function SettingsForm() {
           <button
             onClick={saveCloudflare}
             disabled={cloudflareSave === "saving" || !cloudflareAccountId}
-            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition hover:bg-brass-dark disabled:cursor-not-allowed disabled:opacity-40"
           >
             {cloudflareSave === "saving" ? "Saving..." : "Save"}
           </button>
           {status?.hasCloudflareApiToken && (
             <button
               onClick={clearCloudflare}
-              className="text-sm font-medium text-gray-500 hover:text-gray-900"
+              className="text-sm font-medium text-ink-muted hover:text-ink"
             >
               Remove saved key
             </button>
           )}
           {cloudflareSave === "saved" && (
-            <span className="text-sm text-green-600">Saved ✓</span>
+            <span className="font-mono text-xs text-sage-dark">Saved ✓</span>
           )}
           {cloudflareSave === "error" && (
-            <span className="text-sm text-red-600">Could not save</span>
+            <span className="font-mono text-xs text-clay-dark">
+              Could not save
+            </span>
           )}
         </div>
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-6">
-        <h2 className="text-sm font-semibold text-gray-900">SerpAPI</h2>
-        <p className="mt-1 text-sm text-gray-500">
+      <section className="rounded-lg border border-line bg-paper-raised p-5 sm:p-6">
+        <h2 className="font-display text-sm font-semibold text-ink">
+          SerpAPI
+        </h2>
+        <p className="mt-1 text-sm text-ink-muted">
           Used to find shoppable product matches for items in your design.
           Get a free key at{" "}
           <a
             href="https://serpapi.com/manage-api-key"
             target="_blank"
             rel="noopener noreferrer"
-            className="underline"
+            className="text-brass-dark underline"
           >
             serpapi.com
           </a>
@@ -234,13 +241,13 @@ export default function SettingsForm() {
         </p>
 
         {status?.hasSerpApiKey && (
-          <p className="mt-3 text-xs font-medium text-green-700">
+          <p className="mt-3 font-mono text-xs font-medium text-sage-dark">
             Currently saved: {status.serpApiKeyMasked}
           </p>
         )}
 
         <div className="mt-4">
-          <label className="text-xs font-medium uppercase tracking-wide text-gray-400">
+          <label className="font-mono text-[11px] uppercase tracking-wide text-ink-muted">
             API Key
           </label>
           <input
@@ -252,7 +259,7 @@ export default function SettingsForm() {
                 ? "Leave blank to keep current key"
                 : "Paste your SerpAPI key"
             }
-            className="mt-1 w-full rounded-lg border border-gray-300 p-2.5 text-sm text-gray-900 outline-none focus:border-gray-500"
+            className="mt-1 w-full rounded-md border border-line p-2.5 text-sm text-ink outline-none focus:border-brass"
           />
         </div>
 
@@ -260,23 +267,25 @@ export default function SettingsForm() {
           <button
             onClick={saveSerpApi}
             disabled={serpApiSave === "saving" || !serpApiKey}
-            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition hover:bg-brass-dark disabled:cursor-not-allowed disabled:opacity-40"
           >
             {serpApiSave === "saving" ? "Saving..." : "Save"}
           </button>
           {status?.hasSerpApiKey && (
             <button
               onClick={clearSerpApi}
-              className="text-sm font-medium text-gray-500 hover:text-gray-900"
+              className="text-sm font-medium text-ink-muted hover:text-ink"
             >
               Remove saved key
             </button>
           )}
           {serpApiSave === "saved" && (
-            <span className="text-sm text-green-600">Saved ✓</span>
+            <span className="font-mono text-xs text-sage-dark">Saved ✓</span>
           )}
           {serpApiSave === "error" && (
-            <span className="text-sm text-red-600">Could not save</span>
+            <span className="font-mono text-xs text-clay-dark">
+              Could not save
+            </span>
           )}
         </div>
       </section>

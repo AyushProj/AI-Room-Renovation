@@ -9,33 +9,38 @@ export default async function NavBar() {
   } = await supabase.auth.getUser();
 
   return (
-    <nav className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-      <Link href="/" className="text-sm font-semibold text-gray-900">
-        Room Renovation AI
+    <nav className="flex items-center justify-between border-b border-line bg-paper-raised px-4 py-3 sm:px-6 sm:py-4">
+      <Link
+        href="/"
+        className="font-display text-sm font-semibold tracking-tight text-ink sm:text-base"
+      >
+        Renovation<span className="text-brass">.</span>AI
       </Link>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         {user ? (
           <>
             <Link
               href="/projects"
-              className="text-sm text-gray-600 hover:text-gray-900"
+              className="hidden text-sm text-ink-muted transition hover:text-ink sm:inline"
             >
               My Projects
             </Link>
             <Link
               href="/settings"
-              className="text-sm text-gray-600 hover:text-gray-900"
+              className="text-sm text-ink-muted transition hover:text-ink"
             >
               Settings
             </Link>
-            <span className="text-sm text-gray-500">{user.email}</span>
+            <span className="hidden max-w-[10rem] truncate font-mono text-xs text-ink-muted md:inline">
+              {user.email}
+            </span>
             <SignOutButton />
           </>
         ) : (
           <Link
             href="/login"
-            className="rounded-lg bg-gray-900 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800"
+            className="rounded-md bg-ink px-4 py-1.5 text-sm font-medium text-paper transition hover:bg-brass-dark"
           >
             Sign in
           </Link>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ImageUploader from "./ImageUploader";
 import QuestionFlow from "./QuestionFlow";
@@ -15,6 +15,17 @@ type Step =
   | "complete"
   | "error";
 
+const ANALYZING_MESSAGES = [
+  "Reading the room's layout...",
+  "Noting furniture and finishes...",
+  "Checking light and color...",
+];
+
+const QUESTIONS_MESSAGES = [
+  "Deciding what's worth asking...",
+  "Tailoring questions to this room...",
+];
+
 export default function RoomAnalysisFlow({ userId }: { userId: string }) {
   const [step, setStep] = useState<Step>("upload");
   const [analysis, setAnalysis] = useState<RoomAnalysis | null>(null);
@@ -28,6 +39,18 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
     null
   );
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    if (step !== "analyzing" && step !== "loading_questions") return;
+    setMessageIndex(0);
+    const messages =
+      step === "analyzing" ? ANALYZING_MESSAGES : QUESTIONS_MESSAGES;
+    const interval = setInterval(() => {
+      setMessageIndex((i) => Math.min(i + 1, messages.length - 1));
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [step]);
 
   async function handleUploadComplete(path: string, signedUrl: string) {
     setOriginalImagePath(path);
@@ -50,10 +73,6 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
       const data: RoomAnalysis = await res.json();
       setAnalysis(data);
 
-      // Fire-and-forget-ish: create the project row now so every version
-      // generated from here on attaches to the same timeline. If this
-      // fails we still let the user continue — DesignGenerator just
-      // won't be able to save a version, and we surface that there.
       try {
         const projectRes = await fetch("/api/projects", {
           method: "POST",
@@ -74,7 +93,9 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
     } catch (err) {
       console.error(err);
       setError(
-        err instanceof Error ? err.message : "Something went wrong analyzing the room."
+        err instanceof Error
+          ? err.message
+          : "Couldn't read this photo. Try a clearer, well-lit shot of the room."
       );
       setStep("error");
     }
@@ -95,9 +116,6 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
       }
 
       const data: Question[] = await res.json();
-      // Always ask this, regardless of what the model came up with — it
-      // directly controls how aggressive the generation prompt is, and
-      // we never want it missing.
       const intensityQuestion: Question = {
         id: "renovation_intensity",
         question: "How much do you want to change?",
@@ -108,12 +126,19 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
           "Light — mostly styling and accessories",
         ],
       };
-      setQuestions([intensityQuestion, ...data]);
+      const commentsQuestion: Question = {
+        id: "additional_comments",
+        question: "Anything else you'd like to mention?",
+        type: "text",
+      };
+      setQuestions([intensityQuestion, ...data, commentsQuestion]);
       setStep("answering");
     } catch (err) {
       console.error(err);
       setError(
-        err instanceof Error ? err.message : "Something went wrong generating questions."
+        err instanceof Error
+          ? err.message
+          : "Couldn't put together questions for this room. Try again."
       );
       setStep("error");
     }
@@ -125,7 +150,7 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="flex w-full flex-col items-center gap-6">
+    <div className="flex w-full flex-col items-center gap-6 px-4 sm:px-0">
       {step === "upload" && (
         <ImageUploader userId={userId} onUploadComplete={handleUploadComplete} />
       )}
@@ -137,25 +162,35 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex items-center gap-2 text-sm text-gray-500"
+            className="flex flex-col items-center gap-2 py-6 text-center"
           >
-            <span className="h-2 w-2 animate-pulse rounded-full bg-gray-400" />
-            {step === "analyzing"
-              ? "Scanning your room..."
-              : "Putting together a few questions..."}
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brass opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brass-dark" />
+            </span>
+            <motion.p
+              key={messageIndex}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-sm text-ink-muted"
+            >
+              {(step === "analyzing" ? ANALYZING_MESSAGES : QUESTIONS_MESSAGES)[
+                messageIndex
+              ]}
+            </motion.p>
           </motion.div>
         )}
 
         {step === "error" && (
-          <motion.p
+          <motion.div
             key="error"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-sm text-red-600"
+            className="w-full max-w-lg rounded-lg border border-clay/30 bg-clay/5 p-4 text-center"
             role="alert"
           >
-            {error}
-          </motion.p>
+            <p className="text-sm text-clay-dark">{error}</p>
+          </motion.div>
         )}
 
         {step === "answering" && questions.length > 0 && (
@@ -183,8 +218,8 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
             className="w-full max-w-lg space-y-4"
           >
             <AnalysisSummary analysis={analysis} />
-            <div className="rounded-xl border border-gray-200 bg-white p-6 text-left">
-              <h2 className="text-sm font-semibold text-gray-900">
+            <div className="rounded-lg border border-line bg-paper-raised p-5 text-left sm:p-6">
+              <h2 className="font-display text-sm font-semibold text-ink">
                 Your preferences
               </h2>
               <dl className="mt-4 space-y-3 text-sm">
@@ -203,7 +238,7 @@ export default function RoomAnalysisFlow({ userId }: { userId: string }) {
                 })}
               </dl>
             </div>
-            <p className="text-center text-sm text-gray-400">
+            <p className="text-center text-sm text-ink-muted">
               Generate a photorealistic preview below.
             </p>
             {originalImagePath && originalImageUrl && (
@@ -233,8 +268,8 @@ function AnalysisSummary({
   compact?: boolean;
 }) {
   return (
-    <div className="w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 text-left">
-      <h2 className="text-sm font-semibold text-gray-900">
+    <div className="w-full max-w-lg rounded-lg border border-line bg-paper-raised p-5 text-left sm:p-6">
+      <h2 className="font-display text-sm font-semibold text-ink">
         Here&apos;s what I see
       </h2>
       <dl className="mt-4 space-y-3 text-sm">
@@ -265,10 +300,10 @@ function AnalysisSummary({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-xs font-medium uppercase tracking-wide text-gray-400">
+      <dt className="font-mono text-[11px] uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="text-gray-700">{value}</dd>
+      <dd className="text-ink">{value}</dd>
     </div>
   );
 }
