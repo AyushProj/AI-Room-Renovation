@@ -29,7 +29,17 @@ export async function updateSession(request: NextRequest) {
   );
 
   // IMPORTANT: do not remove this call. It refreshes the session token.
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // No session at all yet (first-ever visit) — create an anonymous one
+  // so every visitor has a real auth.uid() and can use the app without
+  // signing in. Their data upgrades in place if they later sign in with
+  // Google (see the login page's linkIdentity call).
+  if (!user) {
+    await supabase.auth.signInAnonymously();
+  }
 
   return supabaseResponse;
 }

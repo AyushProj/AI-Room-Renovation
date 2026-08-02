@@ -8,6 +8,12 @@ export default async function NavBar() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Supabase's anonymous sign-in feature (if enabled in your Auth
+  // settings) gives every visitor a truthy `user` the moment they land
+  // on the site — `user.is_anonymous` is how you tell that apart from
+  // someone who actually signed in with Google.
+  const isSignedIn = !!user && !user.is_anonymous;
+
   return (
     <nav className="flex items-center justify-between border-b border-line bg-paper-raised px-4 py-3 sm:px-6 sm:py-4">
       <Link
@@ -18,7 +24,7 @@ export default async function NavBar() {
       </Link>
 
       <div className="flex items-center gap-2 sm:gap-4">
-        {user ? (
+        {isSignedIn ? (
           <>
             <Link
               href="/projects"
@@ -42,7 +48,7 @@ export default async function NavBar() {
             href="/login"
             className="rounded-md bg-ink px-4 py-1.5 text-sm font-medium text-paper transition hover:bg-brass-dark"
           >
-            Sign in
+            Sign in to save your work
           </Link>
         )}
       </div>
