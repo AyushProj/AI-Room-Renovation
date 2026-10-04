@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { runGroqChat, parseJsonResponse, GroqError } from "@/lib/groq";
 import type { ExtractedItem } from "@/lib/types";
 
-const VISION_MODEL = "qwen/qwen3.6-27b";
+const VISION_MODEL =
+  process.env.GROQ_VISION_MODEL ?? "qwen/qwen3.8-27b";
 
 const PROMPT = `Identify 4 to 8 distinct, individually purchasable furniture or
 decor items clearly visible in this room photo. For each, give a short,

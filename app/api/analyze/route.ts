@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { runGroqChat, parseJsonResponse, GroqError } from "@/lib/groq";
 import type { RoomAnalysis } from "@/lib/types";
 
-const VISION_MODEL = "qwen/qwen3.6-27b";
+const VISION_MODEL =
+  process.env.GROQ_VISION_MODEL ?? "qwen/qwen3.8-27b";
 
 const PROMPT = `Look at this room photo and respond with a JSON object matching exactly this shape:
 
